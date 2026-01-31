@@ -2,6 +2,7 @@
 use std::{
     io::{Read, Write},
     net::TcpListener,
+    thread,
 };
 
 fn main() {
@@ -9,16 +10,20 @@ fn main() {
 
     for stream in listener.incoming() {
         match stream {
-            Ok(mut stream) => loop {
-                let mut buffer = [0; 512];
-                let bytes_read = stream.read(&mut buffer);
+            Ok(mut stream) => {
+                thread::spawn(move || {
+                    loop {
+                        let mut buffer = [0; 512];
+                        let bytes_read = stream.read(&mut buffer);
 
-                match bytes_read {
-                    Ok(0) => break,
-                    Ok(_) => stream.write_all(b"+PONG\r\n").unwrap(),
-                    Err(_) => break,
-                }
-            },
+                        match bytes_read {
+                            Ok(0) => break,
+                            Ok(_) => stream.write_all(b"+PONG\r\n").unwrap(),
+                            Err(_) => break,
+                        }
+                    }
+                });
+            }
             Err(e) => {
                 println!("error: {}", e);
             }
