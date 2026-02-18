@@ -5,54 +5,105 @@ use std::{
     thread,
 };
 
-fn parse_resp(input: &str) -> Vec<String> {
-    let mut result = Vec::new();
-    let mut lines = input.lines();
-
-    if let Some(first_line) = lines.next() {
-        if first_line.starts_with("*") {
-            if let Ok(array_len) = first_line[1..].parse::<usize>() {
-                for _ in 0..array_len {
-                    if let Some(len_line) = lines.next() {
-                        if len_line.starts_with("$") {
-                            if let Some(data_line) = lines.next() {
-                                result.push(data_line.to_string());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    result
+enum Command {
+    Ping(Option<String>),
+    Echo(String),
 }
 
-fn process_command(command: &str) -> Vec<u8> {
-    let args: Vec<&str> = command.split_whitespace().collect();
+impl Command {
+    fn from_resp(resp: RespValue) -> Result<Self, String> {
+        if let RespValue::Array(elems) = resp {
+            let cmd_name = match elems.get(0) {
+                Some(RespValue::BulkString(s)) => s.to_uppercase(),
+                _ => return Err("Invalid command format".to_string()),
+            };
 
-    if args.is_empty() {
-        return b"-ERR empty command\r\n".to_vec();
+            match cmd_name.as_str() {
+                "PING" => {
+                    let arg = elems.get(1).and_then(|e| {
+                        if let RespValue::BulkString(s) = e {
+                            Some(s.clone())
+                        } else {
+                            None
+                        }
+                    });
+                    Ok(Command::Ping(arg))
+                }
+                "ECHO" => match elems.get(1) {
+                    Some(RespValue::BulkString(s)) => Ok(Command::Echo(s.clone())),
+                    _ => Err("ECHO requires an argument".to_string()),
+                },
+                _ => Err(format!("Unknown command: {}", cmd_name)),
+            }
+        } else {
+            Err("Expected array of bulk strings".to_string())
+        }
     }
+}
 
-    let cmd = args[0].to_uppercase();
+#[allow(dead_code)]
+enum RespValue {
+    SimpleString(String),
+    BulkString(String),
+    Array(Vec<RespValue>),
+    Error(String),
+    Integer(i64),
+    Null,
+}
 
-    match cmd.as_str() {
-        "PING" => {
-            if args.len() > 1 {
-                format!("${}\r\n{}\r\n", args[1].len(), args[1]).into_bytes()
-            } else {
-                b"+PONG\r\n".to_vec()
+impl RespValue {
+    fn serialize(self) -> Vec<u8> {
+        match self {
+            RespValue::SimpleString(s) => format!("+{}\r\n", s).into_bytes(),
+            RespValue::BulkString(s) => format!("${}\r\n{}\r\n", s.len(), s).into_bytes(),
+            RespValue::Error(msg) => format!("-ERR {}\r\n", msg).into_bytes(),
+            RespValue::Integer(i) => format!(":{}\r\n", i).into_bytes(),
+            RespValue::Null => b"$-1\r\n".to_vec(),
+            RespValue::Array(elems) => {
+                let mut out = format!("*{}\r\n", elems.len()).into_bytes();
+                for el in elems {
+                    out.extend_from_slice(&el.serialize());
+                }
+                out
             }
         }
-        "ECHO" => {
-            if args.len() > 1 {
-                let echo_arg = args[1..].join(" ");
-                format!("${}\r\n{}\r\n", echo_arg.len(), echo_arg).into_bytes()
-            } else {
-                b"-ERR wrong number of arguments for 'echo' command\r\n".to_vec()
+    }
+}
+
+fn parse_resp(input: &str) -> Option<RespValue> {
+    let mut lines = input.lines();
+    let first_line = lines.next()?;
+
+    match &first_line[0..1] {
+        "*" => {
+            let len = first_line[1..].parse::<usize>().ok()?;
+            let mut elements = Vec::with_capacity(len);
+
+            for _ in 0..len {
+                let prefix = lines.next()?;
+                if prefix.starts_with("$") {
+                    let data = lines.next()?;
+                    elements.push(RespValue::BulkString(data.to_string()));
+                }
             }
+            Some(RespValue::Array(elements))
         }
-        _ => b"-ERR unknown command\r\n".to_vec(),
+        "+" => Some(RespValue::SimpleString(first_line[1..].to_string())),
+        "$" => {
+            let data = lines.next()?;
+            Some(RespValue::BulkString(data.to_string()))
+        }
+        _ => None,
+    }
+}
+
+fn execute_command(cmd: Command) -> RespValue {
+    match cmd {
+        Command::Ping(msg) => match msg {
+            Some(m) => RespValue::BulkString(m),
+            None => RespValue::SimpleString("PONG".to_string()),
+        },
+        Command::Echo(msg) => RespValue::BulkString(msg),
     }
 }
 
@@ -71,16 +122,13 @@ fn main() {
                             Ok(0) => break,
                             Ok(n) => {
                                 let input = String::from_utf8_lossy(&buffer[..n]);
-                                let args = parse_resp(&input);
-
-                                let response = if args.is_empty() {
-                                    b"-ERR invalid request\r\n".to_vec()
-                                } else {
-                                    let command = args.join(" ");
-                                    process_command(&command)
-                                };
-
-                                let _ = stream.write_all(&response);
+                                if let Some(resp_data) = parse_resp(&input) {
+                                    let response_to_send = match Command::from_resp(resp_data) {
+                                        Ok(cmd) => execute_command(cmd),
+                                        Err(e) => RespValue::Error(e),
+                                    };
+                                    let _ = stream.write_all(&response_to_send.serialize());
+                                }
                             }
                             Err(_) => break,
                         }
