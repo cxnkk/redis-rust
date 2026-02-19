@@ -4,7 +4,7 @@ use crate::{resp::RespValue, storage::extract_string};
 pub enum Command {
     Ping(Option<String>),
     Echo(String),
-    Set(String, String),
+    Set(String, String, Option<u64>),
     Get(String),
 }
 
@@ -34,7 +34,17 @@ impl Command {
                 "SET" => {
                     let key = extract_string(&elems, 1).ok_or("SET missing key")?;
                     let val = extract_string(&elems, 2).ok_or("SET missing value")?;
-                    Ok(Self::Set(key, val))
+
+                    let mut px = None;
+                    if let Some(flag) = extract_string(&elems, 3) {
+                        if flag.to_uppercase() == "PX" {
+                            let ms_str =
+                                extract_string(&elems, 4).ok_or("PX requires milliseconds")?;
+                            px = Some(ms_str.parse::<u64>().map_err(|_| "Invalid PX value")?);
+                        }
+                    }
+
+                    Ok(Self::Set(key, val, px))
                 }
                 "GET" => match elems.get(1) {
                     Some(RespValue::BulkString(s)) => Ok(Self::Get(s.clone())),
