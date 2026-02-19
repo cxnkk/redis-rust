@@ -1,13 +1,20 @@
 #![allow(unused_imports)]
 use std::{
+    collections::HashMap,
     io::{Read, Write},
     net::TcpListener,
+    sync::{Arc, Mutex},
     thread,
 };
 
+type Db = Arc<Mutex<HashMap<String, String>>>;
+
+#[derive(Debug)]
 enum Command {
     Ping(Option<String>),
     Echo(String),
+    Set(String, String),
+    Get(String),
 }
 
 impl Command {
@@ -27,11 +34,20 @@ impl Command {
                             None
                         }
                     });
-                    Ok(Command::Ping(arg))
+                    Ok(Self::Ping(arg))
                 }
                 "ECHO" => match elems.get(1) {
-                    Some(RespValue::BulkString(s)) => Ok(Command::Echo(s.clone())),
+                    Some(RespValue::BulkString(s)) => Ok(Self::Echo(s.clone())),
                     _ => Err("ECHO requires an argument".to_string()),
+                },
+                "SET" => {
+                    let key = extract_string(&elems, 1).ok_or("SET missing key")?;
+                    let val = extract_string(&elems, 2).ok_or("SET missing value")?;
+                    Ok(Self::Set(key, val))
+                }
+                "GET" => match elems.get(1) {
+                    Some(RespValue::BulkString(s)) => Ok(Self::Get(s.clone())),
+                    _ => Err("GET requires a key".to_string()),
                 },
                 _ => Err(format!("Unknown command: {}", cmd_name)),
             }
@@ -42,6 +58,7 @@ impl Command {
 }
 
 #[allow(dead_code)]
+#[derive(Debug)]
 enum RespValue {
     SimpleString(String),
     BulkString(String),
@@ -97,22 +114,43 @@ fn parse_resp(input: &str) -> Option<RespValue> {
     }
 }
 
-fn execute_command(cmd: Command) -> RespValue {
+fn execute_command(cmd: Command, db: &Db) -> RespValue {
     match cmd {
         Command::Ping(msg) => match msg {
             Some(m) => RespValue::BulkString(m),
             None => RespValue::SimpleString("PONG".to_string()),
         },
         Command::Echo(msg) => RespValue::BulkString(msg),
+        Command::Set(key, val) => {
+            let mut map = db.lock().unwrap();
+            map.insert(key, val);
+            RespValue::SimpleString("OK".to_string())
+        }
+        Command::Get(key) => {
+            let map = db.lock().unwrap();
+            match map.get(&key) {
+                Some(val) => RespValue::BulkString(val.clone()),
+                None => RespValue::Null,
+            }
+        }
     }
 }
 
+fn extract_string(elems: &[RespValue], index: usize) -> Option<String> {
+    match elems.get(index) {
+        Some(RespValue::BulkString(s)) => Some(s.clone()),
+        _ => None,
+    }
+}
 fn main() {
+    let db: Db = Arc::new(Mutex::new(HashMap::new()));
     let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
 
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => {
+                let db_clone = db.clone();
+
                 thread::spawn(move || {
                     loop {
                         let mut buffer = [0; 512];
@@ -124,7 +162,7 @@ fn main() {
                                 let input = String::from_utf8_lossy(&buffer[..n]);
                                 if let Some(resp_data) = parse_resp(&input) {
                                     let response_to_send = match Command::from_resp(resp_data) {
-                                        Ok(cmd) => execute_command(cmd),
+                                        Ok(cmd) => execute_command(cmd, &db_clone),
                                         Err(e) => RespValue::Error(e),
                                     };
                                     let _ = stream.write_all(&response_to_send.serialize());
