@@ -6,6 +6,7 @@ pub enum Command {
     Echo(String),
     Set(String, String, Option<u64>),
     Get(String),
+    RPush(String, Vec<String>),
 }
 
 impl Command {
@@ -50,6 +51,22 @@ impl Command {
                     Some(RespValue::BulkString(s)) => Ok(Self::Get(s.clone())),
                     _ => Err("GET requires a key".to_string()),
                 },
+                "RPUSH" => {
+                    let key = extract_string(&elems, 1).ok_or("RPUSH missing key")?;
+
+                    let mut values = Vec::new();
+                    for i in 2..elems.len() {
+                        if let Some(s) = extract_string(&elems, i) {
+                            values.push(s);
+                        }
+                    }
+
+                    if values.is_empty() {
+                        return Err("RPUSH requires at least one value".to_string());
+                    }
+
+                    Ok(Self::RPush(key, values))
+                }
                 _ => Err(format!("Unknown command: {}", cmd_name)),
             }
         } else {

@@ -5,12 +5,17 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-pub struct DbValue {
-    value: String,
+pub struct DbEntry {
+    data: DbData,
     expires_at: Option<Instant>,
 }
 
-pub type Db = Arc<Mutex<HashMap<String, DbValue>>>;
+pub enum DbData {
+    String(String),
+    List(Vec<String>),
+}
+
+pub type Db = Arc<Mutex<HashMap<String, DbEntry>>>;
 
 pub fn execute_command(cmd: Command, db: &Db) -> RespValue {
     match cmd {
@@ -25,8 +30,8 @@ pub fn execute_command(cmd: Command, db: &Db) -> RespValue {
 
             map.insert(
                 key,
-                DbValue {
-                    value: val,
+                DbEntry {
+                    data: DbData::String(val),
                     expires_at,
                 },
             );
@@ -35,16 +40,43 @@ pub fn execute_command(cmd: Command, db: &Db) -> RespValue {
         Command::Get(key) => {
             let mut map = db.lock().unwrap();
 
-            if let Some(db_val) = map.get(&key) {
-                if let Some(expiry) = db_val.expires_at {
+            if let Some(entry) = map.get(&key) {
+                if let Some(expiry) = entry.expires_at {
                     if Instant::now() > expiry {
                         map.remove(&key);
                         return RespValue::Null;
                     }
                 }
-                return RespValue::BulkString(db_val.value.clone());
+
+                match &entry.data {
+                    DbData::String(s) => RespValue::BulkString(s.clone()),
+                    DbData::List(_) => RespValue::Error(
+                        "WRONGTYPE Operation against a key holding the wrong kind of value"
+                            .to_string(),
+                    ),
+                }
+            } else {
+                RespValue::Null
             }
-            RespValue::Null
+        }
+        Command::RPush(key, values) => {
+            let mut map = db.lock().unwrap();
+
+            let entry = map.entry(key).or_insert(DbEntry {
+                data: DbData::List(Vec::new()),
+                expires_at: None,
+            });
+
+            if let DbData::List(ref mut list) = entry.data {
+                for val in values {
+                    list.push(val);
+                }
+                RespValue::Integer(list.len() as i64)
+            } else {
+                RespValue::Error(
+                    "WRONGTYPE Operation against a key holding the wrong kind of value".to_string(),
+                )
+            }
         }
     }
 }
