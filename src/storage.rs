@@ -137,6 +137,22 @@ pub fn execute_command(cmd: Command, db: &Db) -> RespValue {
 
             RespValue::Array(result)
         }
+        Command::LLen(key) => {
+            let mut map = db.lock().unwrap();
+
+            let entry = map.entry(key).or_insert(DbEntry {
+                data: DbData::List(Vec::new()),
+                expires_at: None,
+            });
+
+            if let DbData::List(ref mut list) = entry.data {
+                RespValue::Integer(list.len() as i64)
+            } else {
+                RespValue::Error(
+                    "WRONGTYPE Operation against a key holding the wrong kind of value".to_string(),
+                )
+            }
+        }
     }
 }
 

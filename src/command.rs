@@ -9,6 +9,7 @@ pub enum Command {
     RPush(String, Vec<String>),
     LPush(String, Vec<String>),
     LRange(String, (isize, isize)),
+    LLen(String),
 }
 
 impl Command {
@@ -97,6 +98,10 @@ impl Command {
                         .map_err(|_| "ERR value is not an integer or out of range")?;
 
                     Ok(Self::LRange(key, (start, stop)))
+                }
+                "LLEN" => {
+                    let key = extract_string(&elems, 1).ok_or("LRANGE missing key")?;
+                    Ok(Self::LLen(key))
                 }
                 _ => Err(format!("Unknown command: {}", cmd_name)),
             }
