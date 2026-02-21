@@ -7,6 +7,7 @@ pub enum Command {
     Set(String, String, Option<u64>),
     Get(String),
     RPush(String, Vec<String>),
+    LRange(String, (usize, usize)),
 }
 
 impl Command {
@@ -66,6 +67,21 @@ impl Command {
                     }
 
                     Ok(Self::RPush(key, values))
+                }
+                "LRANGE" => {
+                    let key = extract_string(&elems, 1).ok_or("RPUSH missing key")?;
+                    let start = extract_string(&elems, 2)
+                        .ok_or("RPUSH missing start")?
+                        .trim()
+                        .parse()
+                        .unwrap();
+                    let stop = extract_string(&elems, 3)
+                        .ok_or("RPUSH missing stop")?
+                        .trim()
+                        .parse()
+                        .unwrap();
+
+                    Ok(Self::LRange(key, (start, stop)))
                 }
                 _ => Err(format!("Unknown command: {}", cmd_name)),
             }

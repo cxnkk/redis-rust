@@ -78,6 +78,35 @@ pub fn execute_command(cmd: Command, db: &Db) -> RespValue {
                 )
             }
         }
+        Command::LRange(key, (start, stop)) => {
+            let mut map = db.lock().unwrap();
+
+            let entry = map.entry(key).or_insert(DbEntry {
+                data: DbData::List(Vec::new()),
+                expires_at: None,
+            });
+
+            let mut elems_of_list: Vec<RespValue> = Vec::new();
+
+            if let DbData::List(ref list) = entry.data {
+                if list.is_empty() {
+                    return RespValue::Array(elems_of_list);
+                } else if start >= list.len() {
+                    return RespValue::Array(elems_of_list);
+                } else if stop >= list.len() {
+                    let elems = list[start..].to_vec();
+                    for elem in elems {
+                        elems_of_list.push(RespValue::BulkString(elem));
+                    }
+                } else {
+                    let elems = list[start..stop + 1].to_vec();
+                    for elem in elems {
+                        elems_of_list.push(RespValue::BulkString(elem));
+                    }
+                }
+            }
+            RespValue::Array(elems_of_list)
+        }
     }
 }
 
