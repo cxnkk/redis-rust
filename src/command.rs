@@ -7,7 +7,7 @@ pub enum Command {
     Set(String, String, Option<u64>),
     Get(String),
     RPush(String, Vec<String>),
-    LRange(String, (usize, usize)),
+    LRange(String, (isize, isize)),
 }
 
 impl Command {
@@ -70,16 +70,14 @@ impl Command {
                 }
                 "LRANGE" => {
                     let key = extract_string(&elems, 1).ok_or("LRANGE missing key")?;
-                    let start = extract_string(&elems, 2)
+                    let start: isize = extract_string(&elems, 2)
                         .ok_or("LRANGE missing start")?
-                        .trim()
                         .parse()
-                        .unwrap();
-                    let stop = extract_string(&elems, 3)
+                        .map_err(|_| "ERR value is not an integer or out of range")?;
+                    let stop: isize = extract_string(&elems, 3)
                         .ok_or("LRANGE missing stop")?
-                        .trim()
                         .parse()
-                        .unwrap();
+                        .map_err(|_| "ERR value is not an integer or out of range")?;
 
                     Ok(Self::LRange(key, (start, stop)))
                 }

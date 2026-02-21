@@ -79,33 +79,43 @@ pub fn execute_command(cmd: Command, db: &Db) -> RespValue {
             }
         }
         Command::LRange(key, (start, stop)) => {
-            let mut map = db.lock().unwrap();
+            let map = db.lock().unwrap();
 
-            let entry = map.entry(key).or_insert(DbEntry {
-                data: DbData::List(Vec::new()),
-                expires_at: None,
-            });
-
-            let mut elems_of_list: Vec<RespValue> = Vec::new();
-
-            if let DbData::List(ref list) = entry.data {
-                if list.is_empty() {
-                    return RespValue::Array(elems_of_list);
-                } else if start >= list.len() {
-                    return RespValue::Array(elems_of_list);
-                } else if stop >= list.len() {
-                    let elems = list[start..].to_vec();
-                    for elem in elems {
-                        elems_of_list.push(RespValue::BulkString(elem));
+            let list = match map.get(&key) {
+                Some(entry) => match &entry.data {
+                    DbData::List(l) => l,
+                    _ => {
+                        return RespValue::Error(
+                            "WRONGTYPE Operation against a key holding the wrong kind of value"
+                                .to_string(),
+                        );
                     }
-                } else {
-                    let elems = list[start..stop + 1].to_vec();
-                    for elem in elems {
-                        elems_of_list.push(RespValue::BulkString(elem));
-                    }
-                }
+                },
+                None => return RespValue::Array(vec![]),
+            };
+
+            let len = list.len() as isize;
+
+            let mut start_idx = if start < 0 { len + start } else { start };
+            let mut stop_idx = if stop < 0 { len + stop } else { stop };
+
+            if start_idx < 0 {
+                start_idx = 0;
             }
-            RespValue::Array(elems_of_list)
+            if stop_idx >= len {
+                stop_idx = len - 1;
+            }
+
+            if start_idx >= len || start_idx > stop_idx {
+                return RespValue::Array(vec![]);
+            }
+
+            let result = list[start_idx as usize..=stop_idx as usize]
+                .iter()
+                .map(|s| RespValue::BulkString(s.clone()))
+                .collect();
+
+            RespValue::Array(result)
         }
     }
 }
