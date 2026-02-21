@@ -69,14 +69,14 @@ impl Command {
                     Ok(Self::RPush(key, values))
                 }
                 "LRANGE" => {
-                    let key = extract_string(&elems, 1).ok_or("RPUSH missing key")?;
+                    let key = extract_string(&elems, 1).ok_or("LRANGE missing key")?;
                     let start = extract_string(&elems, 2)
-                        .ok_or("RPUSH missing start")?
+                        .ok_or("LRANGE missing start")?
                         .trim()
                         .parse()
                         .unwrap();
                     let stop = extract_string(&elems, 3)
-                        .ok_or("RPUSH missing stop")?
+                        .ok_or("LRANGE missing stop")?
                         .trim()
                         .parse()
                         .unwrap();
