@@ -7,6 +7,7 @@ pub enum Command {
     Set(String, String, Option<u64>),
     Get(String),
     RPush(String, Vec<String>),
+    LPush(String, Vec<String>),
     LRange(String, (isize, isize)),
 }
 
@@ -67,6 +68,22 @@ impl Command {
                     }
 
                     Ok(Self::RPush(key, values))
+                }
+                "LPUSH" => {
+                    let key = extract_string(&elems, 1).ok_or("LPUSH missing key")?;
+
+                    let mut values = Vec::new();
+                    for i in 2..elems.len() {
+                        if let Some(s) = extract_string(&elems, i) {
+                            values.push(s);
+                        }
+                    }
+
+                    if values.is_empty() {
+                        return Err("LPUSH requires at least one value".to_string());
+                    }
+
+                    Ok(Self::LPush(key, values))
                 }
                 "LRANGE" => {
                     let key = extract_string(&elems, 1).ok_or("LRANGE missing key")?;
