@@ -10,6 +10,7 @@ pub enum Command {
     LPush(String, Vec<String>),
     LRange(String, (isize, isize)),
     LLen(String),
+    LPop(String),
 }
 
 impl Command {
@@ -102,6 +103,10 @@ impl Command {
                 "LLEN" => {
                     let key = extract_string(&elems, 1).ok_or("LRANGE missing key")?;
                     Ok(Self::LLen(key))
+                }
+                "LPOP" => {
+                    let key = extract_string(&elems, 1).ok_or("LPOP missing key")?;
+                    Ok(Self::LPop(key))
                 }
                 _ => Err(format!("Unknown command: {}", cmd_name)),
             }

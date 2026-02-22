@@ -153,6 +153,40 @@ pub fn execute_command(cmd: Command, db: &Db) -> RespValue {
                 )
             }
         }
+        Command::LPop(key) => {
+            let mut map = db.lock().unwrap();
+
+            let is_empty_after_pop = {
+                let entry = map.get_mut(&key);
+                match entry {
+                    Some(e) => {
+                        if let DbData::List(ref mut list) = e.data {
+                            if list.is_empty() {
+                                return RespValue::Null;
+                            }
+                            let val = list.remove(0);
+
+                            (Some(val), list.is_empty())
+                        } else {
+                            return RespValue::Error(
+                                "WRONGTIME Operation against a key holding the wrong kind of value"
+                                    .to_string(),
+                            );
+                        }
+                    }
+                    None => (None, false),
+                }
+            };
+
+            match is_empty_after_pop {
+                (Some(val), true) => {
+                    map.remove(&key);
+                    RespValue::BulkString(val)
+                }
+                (Some(val), false) => RespValue::BulkString(val),
+                (None, _) => RespValue::Null,
+            }
+        }
     }
 }
 
