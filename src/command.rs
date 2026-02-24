@@ -10,7 +10,7 @@ pub enum Command {
     LPush(String, Vec<String>),
     LRange(String, (isize, isize)),
     LLen(String),
-    LPop(String),
+    LPop(String, Option<usize>),
 }
 
 impl Command {
@@ -106,7 +106,15 @@ impl Command {
                 }
                 "LPOP" => {
                     let key = extract_string(&elems, 1).ok_or("LPOP missing key")?;
-                    Ok(Self::LPop(key))
+                    let count = match extract_string(&elems, 2) {
+                        Some(s) => Some(
+                            s.parse::<usize>()
+                                .map_err(|_| "ERR value is not an integer")?,
+                        ),
+                        None => None,
+                    };
+
+                    Ok(Self::LPop(key, count))
                 }
                 _ => Err(format!("Unknown command: {}", cmd_name)),
             }

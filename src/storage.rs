@@ -153,38 +153,44 @@ pub fn execute_command(cmd: Command, db: &Db) -> RespValue {
                 )
             }
         }
-        Command::LPop(key) => {
+        Command::LPop(key, count) => {
             let mut map = db.lock().unwrap();
 
-            let is_empty_after_pop = {
-                let entry = map.get_mut(&key);
-                match entry {
-                    Some(e) => {
-                        if let DbData::List(ref mut list) = e.data {
-                            if list.is_empty() {
-                                return RespValue::Null;
-                            }
-                            let val = list.remove(0);
-
-                            (Some(val), list.is_empty())
-                        } else {
-                            return RespValue::Error(
-                                "WRONGTIME Operation against a key holding the wrong kind of value"
-                                    .to_string(),
-                            );
-                        }
-                    }
-                    None => (None, false),
-                }
+            let entry = match map.get_mut(&key) {
+                Some(e) => e,
+                None => return RespValue::Null,
             };
 
-            match is_empty_after_pop {
-                (Some(val), true) => {
-                    map.remove(&key);
-                    RespValue::BulkString(val)
+            if let DbData::List(ref mut list) = entry.data {
+                if list.is_empty() {
+                    return RespValue::Null;
                 }
-                (Some(val), false) => RespValue::BulkString(val),
-                (None, _) => RespValue::Null,
+
+                match count {
+                    None => {
+                        let val = list.remove(0);
+                        if list.is_empty() {
+                            map.remove(&key);
+                        }
+                        RespValue::BulkString(val)
+                    }
+                    Some(n) => {
+                        let take_n = std::cmp::min(n, list.len());
+                        let removed_elements: Vec<RespValue> = list
+                            .drain(0..take_n)
+                            .map(|s| RespValue::BulkString(s))
+                            .collect();
+
+                        if list.is_empty() {
+                            map.remove(&key);
+                        }
+                        RespValue::Array(removed_elements)
+                    }
+                }
+            } else {
+                RespValue::Error(
+                    "WRONGTYPE Operation against a key holding the wrong kind of value".to_string(),
+                )
             }
         }
     }
