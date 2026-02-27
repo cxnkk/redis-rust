@@ -5,11 +5,13 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+#[derive(Debug)]
 pub struct DbEntry {
     data: DbData,
     expires_at: Option<Instant>,
 }
 
+#[derive(Debug)]
 pub enum DbData {
     String(String),
     List(Vec<String>),
@@ -193,6 +195,28 @@ pub fn execute_command(cmd: Command, db: &Db) -> RespValue {
                 )
             }
         }
+        Command::BLPop(key) => loop {
+            let mut map = db.lock().unwrap();
+
+            let entry = match map.get_mut(&key) {
+                Some(e) => e,
+                None => {
+                    continue;
+                }
+            };
+
+            if let DbData::List(ref mut list) = entry.data {
+                if list.is_empty() {
+                    continue;
+                } else {
+                    if let Some(popped) = list.pop().map(|s| RespValue::BulkString(s)) {
+                        let result: Vec<RespValue> = vec![RespValue::BulkString(key), popped];
+                        return RespValue::Array(result);
+                    };
+                }
+            }
+            return RespValue::Null;
+        },
     }
 }
 

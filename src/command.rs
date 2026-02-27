@@ -11,6 +11,7 @@ pub enum Command {
     LRange(String, (isize, isize)),
     LLen(String),
     LPop(String, Option<usize>),
+    BLPop(String),
 }
 
 impl Command {
@@ -115,6 +116,11 @@ impl Command {
                     };
 
                     Ok(Self::LPop(key, count))
+                }
+                "BLPOP" => {
+                    let key = extract_string(&elems, 1).ok_or("BLPOP missing key")?;
+
+                    Ok(Self::BLPop(key))
                 }
                 _ => Err(format!("Unknown command: {}", cmd_name)),
             }
