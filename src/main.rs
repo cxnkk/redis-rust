@@ -12,12 +12,12 @@ use std::{
     collections::HashMap,
     io::{Read, Write},
     net::TcpListener,
-    sync::{Arc, Mutex},
+    sync::{Arc, Condvar, Mutex},
     thread,
 };
 
 fn main() {
-    let db: Db = Arc::new(Mutex::new(HashMap::new()));
+    let db: Db = Arc::new((Mutex::new(HashMap::new()), Condvar::new()));
     let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
 
     for stream in listener.incoming() {

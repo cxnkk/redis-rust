@@ -2,7 +2,7 @@ use crate::Command;
 use crate::resp::RespValue;
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::Instant;
 
 #[derive(Debug)]
@@ -17,9 +17,11 @@ pub enum DbData {
     List(Vec<String>),
 }
 
-pub type Db = Arc<Mutex<HashMap<String, DbEntry>>>;
+pub type Db = Arc<(Mutex<HashMap<String, DbEntry>>, Condvar)>;
 
 pub fn execute_command(cmd: Command, db: &Db) -> RespValue {
+    let (lock, cvar) = &**db;
+
     match cmd {
         Command::Ping(msg) => match msg {
             Some(m) => RespValue::BulkString(m),
@@ -27,7 +29,7 @@ pub fn execute_command(cmd: Command, db: &Db) -> RespValue {
         },
         Command::Echo(msg) => RespValue::BulkString(msg),
         Command::Set(key, val, px) => {
-            let mut map = db.lock().unwrap();
+            let mut map = lock.lock().unwrap();
             let expires_at = px.map(|ms| Instant::now() + std::time::Duration::from_millis(ms));
 
             map.insert(
@@ -37,10 +39,11 @@ pub fn execute_command(cmd: Command, db: &Db) -> RespValue {
                     expires_at,
                 },
             );
+            cvar.notify_all();
             RespValue::SimpleString("OK".to_string())
         }
         Command::Get(key) => {
-            let mut map = db.lock().unwrap();
+            let mut map = lock.lock().unwrap();
 
             if let Some(entry) = map.get(&key) {
                 if let Some(expiry) = entry.expires_at {
@@ -62,7 +65,7 @@ pub fn execute_command(cmd: Command, db: &Db) -> RespValue {
             }
         }
         Command::RPush(key, values) => {
-            let mut map = db.lock().unwrap();
+            let mut map = lock.lock().unwrap();
 
             let entry = map.entry(key).or_insert(DbEntry {
                 data: DbData::List(Vec::new()),
@@ -73,6 +76,7 @@ pub fn execute_command(cmd: Command, db: &Db) -> RespValue {
                 for val in values {
                     list.push(val);
                 }
+                cvar.notify_all();
                 RespValue::Integer(list.len() as i64)
             } else {
                 RespValue::Error(
@@ -81,7 +85,7 @@ pub fn execute_command(cmd: Command, db: &Db) -> RespValue {
             }
         }
         Command::LPush(key, values) => {
-            let mut map = db.lock().unwrap();
+            let mut map = lock.lock().unwrap();
 
             let entry = map.entry(key).or_insert(DbEntry {
                 data: DbData::List(Vec::new()),
@@ -101,7 +105,7 @@ pub fn execute_command(cmd: Command, db: &Db) -> RespValue {
             }
         }
         Command::LRange(key, (start, stop)) => {
-            let map = db.lock().unwrap();
+            let map = lock.lock().unwrap();
 
             let list = match map.get(&key) {
                 Some(entry) => match &entry.data {
@@ -140,7 +144,7 @@ pub fn execute_command(cmd: Command, db: &Db) -> RespValue {
             RespValue::Array(result)
         }
         Command::LLen(key) => {
-            let mut map = db.lock().unwrap();
+            let mut map = lock.lock().unwrap();
 
             let entry = map.entry(key).or_insert(DbEntry {
                 data: DbData::List(Vec::new()),
@@ -156,7 +160,7 @@ pub fn execute_command(cmd: Command, db: &Db) -> RespValue {
             }
         }
         Command::LPop(key, count) => {
-            let mut map = db.lock().unwrap();
+            let mut map = lock.lock().unwrap();
 
             let entry = match map.get_mut(&key) {
                 Some(e) => e,
@@ -195,28 +199,55 @@ pub fn execute_command(cmd: Command, db: &Db) -> RespValue {
                 )
             }
         }
-        Command::BLPop(key) => loop {
-            let mut map = db.lock().unwrap();
+        Command::BLPop(key, timeout) => {
+            let mut map = lock.lock().unwrap();
 
-            let entry = match map.get_mut(&key) {
-                Some(e) => e,
-                None => {
-                    continue;
+            let timeout_duration = std::time::Duration::from_secs_f32(timeout);
+            let start_time = std::time::Instant::now();
+
+            loop {
+                if let Some(entry) = map.get_mut(&key) {
+                    match &mut entry.data {
+                        DbData::List(list) => {
+                            if !list.is_empty() {
+                                let val = list.remove(0);
+                                let result = vec![
+                                    RespValue::BulkString(key.clone()),
+                                    RespValue::BulkString(val),
+                                ];
+
+                                return RespValue::Array(result);
+                            }
+                        }
+                        _ => {
+                            return RespValue::Error(
+                                "WRONGTYPE Operation against a key holding the wrong kind of value"
+                                    .to_string(),
+                            );
+                        }
+                    }
                 }
-            };
 
-            if let DbData::List(ref mut list) = entry.data {
-                if list.is_empty() {
-                    continue;
+                if timeout == 0.0 {
+                    map = cvar.wait(map).unwrap();
                 } else {
-                    if let Some(popped) = list.pop().map(|s| RespValue::BulkString(s)) {
-                        let result: Vec<RespValue> = vec![RespValue::BulkString(key), popped];
-                        return RespValue::Array(result);
-                    };
+                    let elapsed = start_time.elapsed();
+
+                    if elapsed >= timeout_duration {
+                        return RespValue::Null;
+                    }
+
+                    let remaining = timeout_duration - elapsed;
+
+                    let (new_map, result) = cvar.wait_timeout(map, remaining).unwrap();
+                    map = new_map;
+
+                    if result.timed_out() {
+                        return RespValue::NullArray;
+                    }
                 }
             }
-            return RespValue::Null;
-        },
+        }
     }
 }
 

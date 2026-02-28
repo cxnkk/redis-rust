@@ -11,7 +11,7 @@ pub enum Command {
     LRange(String, (isize, isize)),
     LLen(String),
     LPop(String, Option<usize>),
-    BLPop(String),
+    BLPop(String, f32),
 }
 
 impl Command {
@@ -119,8 +119,12 @@ impl Command {
                 }
                 "BLPOP" => {
                     let key = extract_string(&elems, 1).ok_or("BLPOP missing key")?;
+                    let timeout: f32 = extract_string(&elems, 2)
+                        .ok_or("BLPOP missing timeout duration")?
+                        .parse()
+                        .map_err(|_| "ERR value is not an integer")?;
 
-                    Ok(Self::BLPop(key))
+                    Ok(Self::BLPop(key, timeout))
                 }
                 _ => Err(format!("Unknown command: {}", cmd_name)),
             }

@@ -7,6 +7,7 @@ pub enum RespValue {
     Error(String),
     Integer(i64),
     Null,
+    NullArray,
 }
 
 impl RespValue {
@@ -17,6 +18,7 @@ impl RespValue {
             RespValue::Error(msg) => format!("-ERR {}\r\n", msg).into_bytes(),
             RespValue::Integer(i) => format!(":{}\r\n", i).into_bytes(),
             RespValue::Null => b"$-1\r\n".to_vec(),
+            RespValue::NullArray => b"*-1\r\n".to_vec(),
             RespValue::Array(elems) => {
                 let mut out = format!("*{}\r\n", elems.len()).into_bytes();
                 for el in elems {
