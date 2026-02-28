@@ -248,6 +248,21 @@ pub fn execute_command(cmd: Command, db: &Db) -> RespValue {
                 }
             }
         }
+        Command::Type(key) => {
+            let map = lock.lock().unwrap();
+
+            if let Some(entry) = map.get(&key) {
+                match &entry.data {
+                    DbData::String(_) => RespValue::SimpleString("string".to_string()),
+                    DbData::List(_) => RespValue::SimpleString(
+                        "WRONGTYPE Operation against a key holding the wrong kind of value"
+                            .to_string(),
+                    ),
+                }
+            } else {
+                RespValue::SimpleString("none".to_string())
+            }
+        }
     }
 }
 

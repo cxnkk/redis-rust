@@ -12,6 +12,7 @@ pub enum Command {
     LLen(String),
     LPop(String, Option<usize>),
     BLPop(String, f32),
+    Type(String),
 }
 
 impl Command {
@@ -125,6 +126,11 @@ impl Command {
                         .map_err(|_| "ERR value is not an integer")?;
 
                     Ok(Self::BLPop(key, timeout))
+                }
+                "TYPE" => {
+                    let key = extract_string(&elems, 1).ok_or("TYPE missing key")?;
+
+                    Ok(Self::Type(key))
                 }
                 _ => Err(format!("Unknown command: {}", cmd_name)),
             }
