@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{resp::RespValue, storage::extract_string};
 
 #[derive(Debug)]
@@ -13,6 +15,7 @@ pub enum Command {
     LPop(String, Option<usize>),
     BLPop(String, f32),
     Type(String),
+    XAdd(String, String, HashMap<String, String>),
 }
 
 impl Command {
@@ -131,6 +134,17 @@ impl Command {
                     let key = extract_string(&elems, 1).ok_or("TYPE missing key")?;
 
                     Ok(Self::Type(key))
+                }
+                "XADD" => {
+                    let stream_key = extract_string(&elems, 1).ok_or("XADD missing stream_key")?;
+                    let id = extract_string(&elems, 2).ok_or("XADD missing ID")?;
+                    let key = extract_string(&elems, 3).ok_or("XADD missing key")?;
+                    let val = extract_string(&elems, 4).ok_or("XADD missing value")?;
+
+                    let mut key_val = HashMap::new();
+                    key_val.insert(key, val);
+
+                    Ok(Self::XAdd(stream_key, id, key_val))
                 }
                 _ => Err(format!("Unknown command: {}", cmd_name)),
             }

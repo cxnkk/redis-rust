@@ -15,6 +15,7 @@ pub struct DbEntry {
 pub enum DbData {
     String(String),
     List(Vec<String>),
+    Stream(String, HashMap<String, String>),
 }
 
 pub type Db = Arc<(Mutex<HashMap<String, DbEntry>>, Condvar)>;
@@ -55,7 +56,7 @@ pub fn execute_command(cmd: Command, db: &Db) -> RespValue {
 
                 match &entry.data {
                     DbData::String(s) => RespValue::BulkString(s.clone()),
-                    DbData::List(_) => RespValue::Error(
+                    DbData::List(_) | DbData::Stream(_, _) => RespValue::Error(
                         "WRONGTYPE Operation against a key holding the wrong kind of value"
                             .to_string(),
                     ),
@@ -254,6 +255,7 @@ pub fn execute_command(cmd: Command, db: &Db) -> RespValue {
             if let Some(entry) = map.get(&key) {
                 match &entry.data {
                     DbData::String(_) => RespValue::SimpleString("string".to_string()),
+                    DbData::Stream(_i, _h) => RespValue::SimpleString("stream".to_string()),
                     DbData::List(_) => RespValue::SimpleString(
                         "WRONGTYPE Operation against a key holding the wrong kind of value"
                             .to_string(),
@@ -262,6 +264,18 @@ pub fn execute_command(cmd: Command, db: &Db) -> RespValue {
             } else {
                 RespValue::SimpleString("none".to_string())
             }
+        }
+        Command::XAdd(stream_key, id, key_value_pair) => {
+            let mut map = lock.lock().unwrap();
+
+            map.insert(
+                stream_key,
+                DbEntry {
+                    data: DbData::Stream(id.clone(), key_value_pair),
+                    expires_at: None,
+                },
+            );
+            RespValue::BulkString(id)
         }
     }
 }
