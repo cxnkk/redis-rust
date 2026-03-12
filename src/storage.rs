@@ -268,6 +268,14 @@ pub fn execute_command(cmd: Command, db: &Db) -> RespValue {
         Command::XAdd(stream_key, id, key_value_pair) => {
             let mut map = lock.lock().unwrap();
 
+            // TODO: Implement stream entry ID validation
+            // 1. Parse the 'id' string into '<ms>-<seq>' integers safely.
+            // 2. Validate that the ID is not "0-0" (which is invalid for Redis streams).
+            // 3. Check if the stream already exists in the map to get its last inserted ID.
+            // 4. Ensure the new ID is strictly greater than the previous one.
+            // 5. If validation fails, return RespValue::Error("ERR The ID specified in XADD is equal or smaller than the target stream top item").
+
+            // FIXME: Currently this just overwrites the stream instead of appending to it.
             map.insert(
                 stream_key,
                 DbEntry {
